@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>荔枝分割与检测工具 (高级版)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .canvas-container { position: relative; width: 100%; padding-top: 56.25%; height: 0; }
+        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border-radius: 0.5rem; }
+        .slider-label { min-width: 120px; }
+        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 20px; height: 20px; background: #ef4444; cursor: pointer; border-radius: 50%; }
+        input[type="range"]::-moz-range-thumb { width: 20px; height: 20px; background: #ef4444; cursor: pointer; border-radius: 50%; }
+        .nav-btn { transition: background-color 0.3s, color 0.3s; }
+        .nav-btn.active { background-color: #ef4444; color: white; }
+    </style>
+</head>
+<body class="bg-black text-gray-300">
+
+    <div class="container mx-auto p-4 md:p-8 max-w-7xl">
+        <!-- Navigation -->
+        <nav class="flex justify-center mb-8 bg-gray-900 rounded-lg p-2 shadow-lg">
+            <button id="nav-binarize" class="nav-btn active text-white font-semibold py-2 px-6 rounded-md">二元化工具</button>
+            <button id="nav-single" class="nav-btn text-gray-400 font-semibold py-2 px-6 rounded-md">识别荔枝</button>
+            <button id="nav-cluster" class="nav-btn text-gray-400 font-semibold py-2 px-6 rounded-md">识别荔枝串</button>
+        </nav>
+
+        <!-- Page 1: Binarization Tool -->
+        <div id="page-binarize">
+            <header class="text-center mb-6"><h1 class="text-3xl md:text-4xl font-bold text-red-500">红色物体二元化分割</h1><p class="mt-2 text-gray-400">上传单张图片进行参数调试，或选择文件夹进行批量处理。</p></header>
+            <div class="bg-gray-900 p-6 rounded-lg shadow-lg mb-8">
+                <div class="mb-4"><label for="image-loader" class="block mb-2 font-medium text-gray-300">第一步: 选择单个图片进行参数调试</label><input type="file" id="image-loader" accept="image/*" class="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-red-900 file:text-red-300 hover:file:bg-red-800 cursor-pointer"/></div>
+                <div class="mb-4"><label for="folder-loader" class="block mb-2 font-medium text-gray-300">第二步: 选择要批量处理的图片文件夹</label><input type="file" id="folder-loader" webkitdirectory directory multiple class="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-900 file:text-blue-300 hover:file:bg-blue-800 cursor-pointer"/></div>
+                <div><button id="batch-process-btn" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300 disabled:bg-gray-500">第三步: 批量处理并下载ZIP</button><p id="batch-status" class="text-center mt-2 text-sm text-yellow-400 h-5"></p></div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+                <div><h2 class="text-xl font-semibold mb-4 text-center text-gray-300">实时预览</h2><div class="canvas-container bg-gray-800 rounded-lg"><canvas id="original-canvas"></canvas></div></div>
+                <div><h2 class="text-xl font-semibold mb-4 text-center text-gray-300">分割结果 (蒙版)</h2><div class="canvas-container bg-gray-700 rounded-lg"><canvas id="segmented-canvas"></canvas></div></div>
+            </div>
+        </div>
+
+        <!-- Page 2: Single Lychee Detection -->
+        <div id="page-single" class="hidden">
+            <header class="text-center mb-6"><h1 class="text-3xl md:text-4xl font-bold text-red-500">识别荔枝</h1><p class="mt-2 text-gray-400">用于检测单个或小面积的荔枝，参数更精细。</p></header>
+            <div class="bg-gray-900 p-6 rounded-lg shadow-lg mb-8">
+                <div class="mb-4">
+                    <label for="single-image-loader" class="block mb-2 font-medium text-gray-300">选择要分析的图片:</label>
+                    <input type="file" id="single-image-loader" accept="image/*" class="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-red-900 file:text-red-300 hover:file:bg-red-800 cursor-pointer"/>
+                </div>
+                <div>
+                    <label for="single-ratio-slider" class="block mb-2 font-medium text-gray-300">荔枝最小面积比例: <span id="single-ratio-value">0.010</span>%</label>
+                    <input type="range" id="single-ratio-slider" min="0.001" max="0.5" step="0.001" value="0.01" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+                </div>
+            </div>
+            <div class="w-full max-w-4xl mx-auto">
+                <h2 class="text-xl font-semibold mb-4 text-center text-gray-300">分析结果</h2>
+                <div class="canvas-container bg-gray-800 rounded-lg mb-4"><canvas id="single-analysis-canvas"></canvas></div>
+                <div class="grid grid-cols-2 gap-4 text-center">
+                    <div id="status-left-single" class="p-4 rounded-lg bg-gray-700"><p class="font-bold text-lg">左侧区域</p><p id="status-text-left-single" class="text-2xl font-black">未检测</p></div>
+                    <div id="status-right-single" class="p-4 rounded-lg bg-gray-700"><p class="font-bold text-lg">右侧区域</p><p id="status-text-right-single" class="text-2xl font-black">未检测</p></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Page 3: Lychee Cluster Detection -->
+        <div id="page-cluster" class="hidden">
+            <header class="text-center mb-6"><h1 class="text-3xl md:text-4xl font-bold text-red-500">识别荔枝串</h1><p class="mt-2 text-gray-400">使用高级算法检测成串的荔枝，抗干扰能力更强。</p></header>
+            <div class="bg-gray-900 p-6 rounded-lg shadow-lg mb-8">
+                 <div class="mb-4">
+                    <label for="cluster-image-loader" class="block mb-2 font-medium text-gray-300">选择要分析的图片:</label>
+                    <input type="file" id="cluster-image-loader" accept="image/*" class="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-red-900 file:text-red-300 hover:file:bg-red-800 cursor-pointer"/>
+                </div>
+                <div class="mb-4">
+                    <label for="cluster-ratio-slider" class="block mb-2 font-medium text-gray-300">荔枝串最小面积比例: <span id="cluster-ratio-value">0.050</span>%</label>
+                    <input type="range" id="cluster-ratio-slider" min="0.001" max="1" step="0.001" value="0.05" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+                </div>
+                <div class="mt-6">
+                    <label class="block mb-2 font-medium text-gray-300">选择检测算法后处理：</label>
+                    <div class="grid grid-cols-2 sm:grid-cols-2 gap-4">
+                        <button id="btn-detect-raw" class="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded">原图直接检测</button>
+                        <button id="btn-detect-blur" class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-4 rounded">模糊降噪</button>
+                        <button id="btn-detect-morph" class="bg-purple-600 hover:bg-purple-500 text-white font-bold py-2 px-4 rounded">形态学闭运算</button>
+                        <button id="btn-detect-hybrid" class="bg-teal-600 hover:bg-teal-500 text-white font-bold py-2 px-4 rounded">混合运算</button>
+                    </div>
+                </div>
+                <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label for="blur-intensity-slider" class="block mb-2 text-sm font-medium text-gray-300">模糊强度: <span id="blur-intensity-value">1</span></label>
+                        <input type="range" id="blur-intensity-slider" min="1" max="50" step="1" value="1" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+                    </div>
+                    <div>
+                        <label for="morph-intensity-slider" class="block mb-2 text-sm font-medium text-gray-300">形态学运算强度: <span id="morph-intensity-value">1</span></label>
+                        <input type="range" id="morph-intensity-slider" min="1" max="50" step="1" value="1" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+                    </div>
+                </div>
+            </div>
+             <div class="w-full max-w-4xl mx-auto">
+                <h2 class="text-xl font-semibold mb-4 text-center text-gray-300">分析结果 (<span id="current-algo-text">未运行</span>)</h2>
+                <div class="canvas-container bg-gray-800 rounded-lg mb-4"><canvas id="cluster-analysis-canvas"></canvas></div>
+                <div class="grid grid-cols-2 gap-4 text-center">
+                    <div id="status-left-cluster" class="p-4 rounded-lg bg-gray-700"><p class="font-bold text-lg">左侧区域</p><p id="status-text-left-cluster" class="text-2xl font-black">未检测</p></div>
+                    <div id="status-right-cluster" class="p-4 rounded-lg bg-gray-700"><p class="font-bold text-lg">右侧区域</p><p id="status-text-right-cluster" class="text-2xl font-black">未检测</p></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Common Settings Panel -->
+        <div class="bg-gray-900 p-6 rounded-lg shadow-lg mt-8">
+            <h3 class="text-lg font-semibold mb-4 text-gray-300">通用分割参数 (所有页面通用)</h3>
+            <div class="space-y-4">
+                <div class="flex items-center space-x-4"><span class="slider-label text-sm font-medium">色相 (Hue) 范围:</span><div class="flex-grow grid grid-cols-2 gap-4 items-center"><div><label for="hue-lower" class="block text-xs text-gray-500">下限: <span id="hue-lower-value">350</span></label><input type="range" id="hue-lower" min="0" max="360" value="350" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"></div><div><label for="hue-upper" class="block text-xs text-gray-500">上限: <span id="hue-upper-value">10</span></label><input type="range" id="hue-upper" min="0" max="360" value="10" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"></div></div></div>
+                <div class="flex items-center space-x-4"><span class="slider-label text-sm font-medium">饱和度 (Sat) 阈值:</span><div class="flex-grow"><label for="saturation-threshold" class="block text-xs text-gray-500">下限: <span id="saturation-value">50</span></label><input type="range" id="saturation-threshold" min="0" max="100" value="50" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"></div></div>
+                <div class="flex items-center space-x-4"><span class="slider-label text-sm font-medium">明度 (Val) 阈值:</span><div class="flex-grow"><label for="value-threshold" class="block text-xs text-gray-500">下限: <span id="value-value">30</span></label><input type="range" id="value-threshold" min="0" max="100" value="30" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"></div></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- DOM Elements ---
+        const pageBinarize = document.getElementById('page-binarize'), pageSingle = document.getElementById('page-single'), pageCluster = document.getElementById('page-cluster');
+        const navBinarize = document.getElementById('nav-binarize'), navSingle = document.getElementById('nav-single'), navCluster = document.getElementById('nav-cluster');
+        const imageLoader = document.getElementById('image-loader'), folderLoader = document.getElementById('folder-loader'), batchProcessBtn = document.getElementById('batch-process-btn'), batchStatus = document.getElementById('batch-status');
+        const singleImageLoader = document.getElementById('single-image-loader');
+        const clusterImageLoader = document.getElementById('cluster-image-loader');
+        const originalCanvas = document.getElementById('original-canvas'), segmentedCanvas = document.getElementById('segmented-canvas');
+        const originalCtx = originalCanvas.getContext('2d'), segmentedCtx = segmentedCanvas.getContext('2d');
+        const singleAnalysisCanvas = document.getElementById('single-analysis-canvas'), singleAnalysisCtx = singleAnalysisCanvas.getContext('2d');
+        const statusLeftSingle = document.getElementById('status-left-single'), statusTextLeftSingle = document.getElementById('status-text-left-single'), statusRightSingle = document.getElementById('status-right-single'), statusTextRightSingle = document.getElementById('status-text-right-single');
+        const singleRatioSlider = document.getElementById('single-ratio-slider'), singleRatioValue = document.getElementById('single-ratio-value');
+        const clusterAnalysisCanvas = document.getElementById('cluster-analysis-canvas'), clusterAnalysisCtx = clusterAnalysisCanvas.getContext('2d');
+        const statusLeftCluster = document.getElementById('status-left-cluster'), statusTextLeftCluster = document.getElementById('status-text-left-cluster'), statusRightCluster = document.getElementById('status-right-cluster'), statusTextRightCluster = document.getElementById('status-text-right-cluster');
+        const clusterRatioSlider = document.getElementById('cluster-ratio-slider'), clusterRatioValue = document.getElementById('cluster-ratio-value');
+        const btnDetectRaw = document.getElementById('btn-detect-raw'), btnDetectBlur = document.getElementById('btn-detect-blur'), btnDetectMorph = document.getElementById('btn-detect-morph'), btnDetectHybrid = document.getElementById('btn-detect-hybrid');
+        const blurIntensitySlider = document.getElementById('blur-intensity-slider'), blurIntensityValue = document.getElementById('blur-intensity-value');
+        const morphIntensitySlider = document.getElementById('morph-intensity-slider'), morphIntensityValue = document.getElementById('morph-intensity-value');
+        const currentAlgoText = document.getElementById('current-algo-text');
+        const hueLowerSlider = document.getElementById('hue-lower'), hueUpperSlider = document.getElementById('hue-upper'), saturationSlider = document.getElementById('saturation-threshold'), valueSlider = document.getElementById('value-threshold');
+        const hueLowerValue = document.getElementById('hue-lower-value'), hueUpperValue = document.getElementById('hue-upper-value'), saturationValue = document.getElementById('saturation-value'), valueValue = document.getElementById('value-value');
+
+        // --- Global State ---
+        let mainImage = new Image();
+        let filesToProcess = [];
+
+        // --- Core Functions ---
+        function rgbToHsv(r, g, b) { /* Unchanged */ r /= 255, g /= 255, b /= 255; let max = Math.max(r, g, b), min = Math.min(r, g, b); let h, s, v = max; let d = max - min; s = max === 0 ? 0 : d / max; if (max === min) { h = 0; } else { switch (max) { case r: h = (g - b) / d + (g < b ? 6 : 0); break; case g: h = (b - r) / d + 2; break; case b: h = (r - g) / d + 4; break; } h /= 6; } return [h * 360, s * 100, v * 100]; }
+        function createSegmentedMask(image, hL, hU, sT, vT) { /* Unchanged */ const canvas = document.createElement('canvas'); canvas.width = image.width; canvas.height = image.height; const ctx = canvas.getContext('2d'); ctx.drawImage(image, 0, 0, image.width, image.height); const imageData = ctx.getImageData(0, 0, image.width, image.height); const data = imageData.data; for (let i = 0; i < data.length; i += 4) { const [h, s, v] = rgbToHsv(data[i], data[i+1], data[i+2]); let isRed = (hL > hU) ? ((h >= hL && h <= 360) || (h >= 0 && h <= hU)) : (h >= hL && h <= hU); if (isRed && s >= sT && v >= vT) { data[i] = 255; data[i+1] = 255; data[i+2] = 255; data[i+3] = 255; } else { data[i] = 0; data[i+1] = 0; data[i+2] = 0; data[i+3] = 255; } } ctx.putImageData(imageData, 0, 0); return ctx.getImageData(0, 0, image.width, image.height); }
+        function findClusters(maskData) { /* Unchanged */ const { width, height, data } = maskData; const visited = new Uint8Array(width * height); const clusters = []; for (let y = 0; y < height; y++) { for (let x = 0; x < width; x++) { const index = (y * width + x); if (data[index * 4] === 255 && visited[index] === 0) { const cluster = { pixels: 0, minX: x, maxX: x, minY: y, maxY: y }; const stack = [[x, y]]; visited[index] = 1; while (stack.length > 0) { const [cx, cy] = stack.pop(); cluster.pixels++; cluster.minX = Math.min(cluster.minX, cx); cluster.maxX = Math.max(cluster.maxX, cx); cluster.minY = Math.min(cluster.minY, cy); cluster.maxY = Math.max(cluster.maxY, cy); for (let ny = cy - 1; ny <= cy + 1; ny++) { for (let nx = cx - 1; nx <= cx + 1; nx++) { if (nx >= 0 && nx < width && ny >= 0 && ny < height) { const nIndex = ny * width + nx; if (data[nIndex * 4] === 255 && visited[nIndex] === 0) { visited[nIndex] = 1; stack.push([nx, ny]); } } } } } clusters.push(cluster); } } } return clusters; }
+
+        // --- Page Navigation ---
+        function setupNavigation() {
+            const pages = { 'nav-binarize': pageBinarize, 'nav-single': pageSingle, 'nav-cluster': pageCluster };
+            const navs = [navBinarize, navSingle, navCluster];
+            navs.forEach(nav => {
+                nav.addEventListener('click', () => {
+                    navs.forEach(n => {
+                        n.classList.remove('active');
+                        pages[n.id].classList.add('hidden'); 
+                    });
+                    nav.classList.add('active');
+                    pages[nav.id].classList.remove('hidden');
+                });
+            });
+        }
+        
+        // --- Image Processing Algorithms ---
+        function applyBoxBlur(maskData, intensity) {
+            let currentData = maskData;
+            for (let i = 0; i < intensity; i++) {
+                const { width, height, data } = currentData;
+                const nextData = new Uint8ClampedArray(data);
+                for (let y = 1; y < height - 1; y++) {
+                    for (let x = 1; x < width - 1; x++) {
+                        let sum = 0;
+                        for (let ky = -1; ky <= 1; ky++) {
+                            for (let kx = -1; kx <= 1; kx++) {
+                                sum += data[((y + ky) * width + (x + kx)) * 4];
+                            }
+                        }
+                        const value = sum / 9 > 127 ? 255 : 0;
+                        const idx = (y * width + x) * 4;
+                        nextData[idx] = nextData[idx+1] = nextData[idx+2] = value;
+                    }
+                }
+                currentData = new ImageData(nextData, width, height);
+            }
+            return currentData;
+        }
+
+        function applyMorphology(maskData, operation, intensity) {
+            let currentData = maskData;
+            for (let i = 0; i < intensity; i++) {
+                const { width, height, data } = currentData;
+                const newData = new Uint8ClampedArray(data.length);
+                const isDilate = operation === 'dilate';
+
+                for (let y = 0; y < height; y++) {
+                    for (let x = 0; x < width; x++) {
+                        const idx = (y * width + x) * 4;
+                        let hit = isDilate ? false : true;
+                        
+                        for (let ky = -1; ky <= 1; ky++) {
+                            for (let kx = -1; kx <= 1; kx++) {
+                                const ny = y + ky, nx = x + kx;
+                                if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
+                                    const val = data[(ny * width + nx) * 4] > 0;
+                                    if (isDilate && val) hit = true;
+                                    if (!isDilate && !val) hit = false;
+                                }
+                            }
+                        }
+                        const value = hit ? 255 : 0;
+                        newData[idx] = newData[idx+1] = newData[idx+2] = value;
+                        newData[idx+3] = 255;
+                    }
+                }
+                currentData = new ImageData(newData, width, height);
+            }
+            return currentData;
+        }
+
+        function applyClosing(maskData, intensity) {
+            let dilated = applyMorphology(maskData, 'dilate', intensity);
+            return applyMorphology(dilated, 'erode', intensity);
+        }
+
+        // --- Analysis & Drawing ---
+        function runAndDrawAnalysis(canvas, ctx, minClusterRatio, maskProcessor = (m) => m) {
+            if (!mainImage.src) return;
+            const w = mainImage.width, h = mainImage.height;
+            canvas.width = w; canvas.height = h;
+
+            const hL = parseFloat(hueLowerSlider.value), hU = parseFloat(hueUpperSlider.value), sT = parseFloat(saturationSlider.value), vT = parseFloat(valueSlider.value);
+            const minPixelCount = (w * h) * minClusterRatio;
+
+            let maskData = createSegmentedMask(mainImage, hL, hU, sT, vT);
+            maskData = maskProcessor(maskData); // Apply optional processing
+            const clusters = findClusters(maskData).filter(c => c.pixels >= minPixelCount);
+            
+            ctx.drawImage(mainImage, 0, 0, w, h);
+            ctx.strokeStyle = '#ff0000';
+            ctx.lineWidth = Math.max(2, Math.min(w, h) * 0.005);
+            
+            let foundLeft = false, foundRight = false;
+            clusters.forEach(c => {
+                const boxW = c.maxX - c.minX, boxH = c.maxY - c.minY;
+                ctx.strokeRect(c.minX, c.minY, boxW, boxH);
+                const centerX = c.minX + boxW / 2;
+                if (centerX < w * 0.55) foundLeft = true;
+                if (centerX > w * 0.45) foundRight = true;
+            });
+            return { foundLeft, foundRight };
+        }
+
+        function updateStatus(el, textEl, found) {
+            if (found) { el.className = 'p-4 rounded-lg bg-red-800 text-red-100'; textEl.textContent = '检测到'; } 
+            else { el.className = 'p-4 rounded-lg bg-green-800 text-green-100'; textEl.textContent = '未检测到'; }
+        }
+        
+        // --- Event Handlers & Triggers ---
+        function handleImageLoad(src) {
+            mainImage.src = src;
+            mainImage.onload = () => {
+                updatePreview();
+                runSingleAnalysis();
+                clusterAnalysisCtx.drawImage(mainImage, 0, 0, clusterAnalysisCanvas.width, clusterAnalysisCanvas.height);
+                currentAlgoText.textContent = "请选择算法";
+            };
+        }
+
+        function updatePreview() {
+            if (!mainImage.src) return;
+            originalCanvas.width = mainImage.width; originalCanvas.height = mainImage.height;
+            originalCtx.drawImage(mainImage, 0, 0, mainImage.width, mainImage.height);
+            const hL = parseFloat(hueLowerSlider.value), hU = parseFloat(hueUpperSlider.value), sT = parseFloat(saturationSlider.value), vT = parseFloat(valueSlider.value);
+            const maskData = createSegmentedMask(mainImage, hL, hU, sT, vT);
+            segmentedCanvas.width = mainImage.width; segmentedCanvas.height = mainImage.height;
+            segmentedCtx.putImageData(maskData, 0, 0);
+        }
+
+        function runSingleAnalysis() {
+            const ratio = parseFloat(singleRatioSlider.value) / 100;
+            const { foundLeft, foundRight } = runAndDrawAnalysis(singleAnalysisCanvas, singleAnalysisCtx, ratio);
+            updateStatus(statusLeftSingle, statusTextLeftSingle, foundLeft);
+            updateStatus(statusRightSingle, statusTextRightSingle, foundRight);
+        }
+
+        function runClusterAnalysis(processor, algoName) {
+            currentAlgoText.textContent = algoName;
+            const ratio = parseFloat(clusterRatioSlider.value) / 100;
+            const { foundLeft, foundRight } = runAndDrawAnalysis(clusterAnalysisCanvas, clusterAnalysisCtx, ratio, processor);
+            updateStatus(statusLeftCluster, statusTextLeftCluster, foundLeft);
+            updateStatus(statusRightCluster, statusTextRightCluster, foundRight);
+        }
+        
+        batchProcessBtn.addEventListener('click', async () => {
+            if (filesToProcess.length === 0) { batchStatus.textContent = '请先选择一个文件夹。'; return; }
+            batchProcessBtn.disabled = true;
+            batchStatus.textContent = '正在初始化...';
+            const zip = new JSZip();
+            const hL = parseFloat(hueLowerSlider.value), hU = parseFloat(hueUpperSlider.value), sT = parseFloat(saturationSlider.value), vT = parseFloat(valueSlider.value);
+            for (let i = 0; i < filesToProcess.length; i++) {
+                const file = filesToProcess[i];
+                batchStatus.textContent = `正在处理: ${i + 1} / ${filesToProcess.length} - ${file.name}`;
+                const processedBlob = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        const img = new Image();
+                        img.onload = () => {
+                            const maskData = createSegmentedMask(img, hL, hU, sT, vT);
+                            const tempCanvas = document.createElement('canvas');
+                            tempCanvas.width = img.width; tempCanvas.height = img.height;
+                            const tempCtx = tempCanvas.getContext('2d');
+                            tempCtx.putImageData(maskData, 0, 0);
+                            tempCanvas.toBlob(resolve, 'image/png');
+                        };
+                        img.onerror = reject;
+                        img.src = event.target.result;
+                    };
+                    reader.onerror = reject;
+                    reader.readAsDataURL(file);
+                });
+                zip.file(`processed_${file.name}.png`, processedBlob);
+            }
+            batchStatus.textContent = '正在生成 ZIP 文件...';
+            const zipBlob = await zip.generateAsync({type:"blob"});
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(zipBlob);
+            link.download = 'processed_images.zip';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            batchStatus.textContent = '处理完成！ZIP 文件已开始下载。';
+            batchProcessBtn.disabled = false;
+        });
+
+        // --- Event Listeners Setup ---
+        function setupEventListeners() {
+            const fileInputs = [imageLoader, singleImageLoader, clusterImageLoader];
+            fileInputs.forEach(input => {
+                input.addEventListener('change', e => {
+                    if (e.target.files[0]) {
+                        const reader = new FileReader();
+                        reader.onload = event => handleImageLoad(event.target.result);
+                        reader.readAsDataURL(e.target.files[0]);
+                    }
+                });
+            });
+            
+            folderLoader.addEventListener('change', (e) => {
+                filesToProcess = Array.from(e.target.files).filter(file => file.type.startsWith('image/'));
+                batchStatus.textContent = filesToProcess.length > 0 ? `已选择 ${filesToProcess.length} 个图片文件。` : "未在所选文件夹中找到图片文件。";
+            });
+
+            [hueLowerSlider, hueUpperSlider, saturationSlider, valueSlider].forEach(s => s.addEventListener('input', () => {
+                updatePreview();
+                if(mainImage.src) {
+                    runSingleAnalysis();
+                    currentAlgoText.textContent = "参数已变动, 请重选算法";
+                }
+                hueLowerValue.textContent = hueLowerSlider.value; hueUpperValue.textContent = hueUpperSlider.value;
+                saturationValue.textContent = saturationSlider.value; valueValue.textContent = valueSlider.value;
+            }));
+
+            singleRatioSlider.addEventListener('input', () => {
+                singleRatioValue.textContent = parseFloat(singleRatioSlider.value).toFixed(3);
+                if(mainImage.src) runSingleAnalysis();
+            });
+            
+            clusterRatioSlider.addEventListener('input', () => {
+                clusterRatioValue.textContent = parseFloat(clusterRatioSlider.value).toFixed(3);
+                currentAlgoText.textContent = "参数已变动, 请重选算法";
+            });
+
+            blurIntensitySlider.addEventListener('input', () => {
+                blurIntensityValue.textContent = blurIntensitySlider.value;
+                currentAlgoText.textContent = "参数已变动, 请重选算法";
+            });
+            morphIntensitySlider.addEventListener('input', () => {
+                morphIntensityValue.textContent = morphIntensitySlider.value;
+                currentAlgoText.textContent = "参数已变动, 请重选算法";
+            });
+
+            btnDetectRaw.addEventListener('click', () => runClusterAnalysis(m => m, '原图直接检测'));
+            btnDetectBlur.addEventListener('click', () => {
+                const intensity = parseInt(blurIntensitySlider.value);
+                runClusterAnalysis((m) => applyBoxBlur(m, intensity), `模糊降噪 (强度: ${intensity})`);
+            });
+            btnDetectMorph.addEventListener('click', () => {
+                const intensity = parseInt(morphIntensitySlider.value);
+                runClusterAnalysis((m) => applyClosing(m, intensity), `形态学闭运算 (强度: ${intensity})`);
+            });
+            btnDetectHybrid.addEventListener('click', () => {
+                const blurIntensity = parseInt(blurIntensitySlider.value);
+                const morphIntensity = parseInt(morphIntensitySlider.value);
+                const processor = (mask) => {
+                    const blurredMask = applyBoxBlur(mask, blurIntensity);
+                    return applyClosing(blurredMask, morphIntensity);
+                };
+                runClusterAnalysis(processor, `混合运算 (模糊:${blurIntensity}, 形态学:${morphIntensity})`);
+            });
+        }
+
+        // --- Initial Load ---
+        function initialLoad() {
+            const defaultImageUrl = 'https://storage.googleapis.com/maker-me-space-os-us/user/4880a133-d922-487e-9739-55117992a7e7/DJI_0001.jpg-7de7aed8-3b7d-4eea-8e23-5327acee799b';
+            mainImage.crossOrigin = "Anonymous";
+            setupNavigation();
+            setupEventListeners();
+            handleImageLoad(defaultImageUrl);
+        }
+        
+        window.onload = initialLoad;
+    </script>
+</body>
+</html>
